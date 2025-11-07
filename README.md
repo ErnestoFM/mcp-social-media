@@ -1,9 +1,3 @@
-¡Absolutamente! El README es la parte más importante de tu repositorio. Tu descripción inicial es perfecta.
-
-Aquí tienes una plantilla de README completa y profesional, escrita en Markdown, y adaptada específicamente a tu proyecto.
-
-Copia y pega esto en tu archivo README.md:
-
 🤖 mcp-social-media (Servidor MCP de Redes Sociales)
 Servidor MCP (Model Context Protocol) en Node.js/TypeScript para gestionar Instagram, Facebook y Threads, con análisis en DynamoDB y sistema de archivos seguro.
 
