@@ -9,6 +9,15 @@ export interface ScheduledPost {
   s3_url: string;
   caption: string;
 }
+
+export interface HashtagStats {
+  hashtag: string;
+  stat_date: string;
+  avg_likes: number;
+  avg_comments: number;
+  total_posts_analyzed: number;
+}
+
 import { 
   DynamoDBDocumentClient, 
   PutCommand, 
@@ -37,6 +46,19 @@ export interface StoredStats extends DailyStats {
 export type Platform = 'instagram' | 'facebook' | 'threads';
 
 // ========== CONFIGURACIÓN ==========
+export interface Collaboration {
+  platform: Platform;
+  collaboration_id: string; // SK (ej: 20251109-hatueyfierro)
+  username: string;
+  type: 'shoutout' | 'giveaway' | 'collab_post';
+  post_id: string;
+  notes?: string;
+  // Estos se actualizan después
+  post_engagement?: {
+    likes: number;
+    comments: number;
+  };
+}
 
 const client = new DynamoDBClient({
   region: process.env.AWS_REGION,
@@ -49,7 +71,8 @@ const client = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || "social_stats";
 const SCHEDULED_TABLE_NAME = process.env.DYNAMODB_SCHEDULED_TABLE ||"scheduled_posts"
-
+const HASHTAG_TABLE_NAME = process.env.DYNAMODB_HASHTAG_TABLE_NAME || "hashtag_stats";
+const COLLAB_TABLE_NAME = process.env.DYNAMODB_COLLAB_TABLE_NAME || "social_collaborations";
 // ========== HELPERS ==========
 
 async function withRetry<T>(
@@ -82,6 +105,114 @@ function validateStats(stats: DailyStats): boolean {
 }
 
 // ========== FUNCIONES PRINCIPALES ==========
+
+/**
+ * Guarda o sobrescribe las estadísticas promedio de un hashtag para el día de hoy
+ */
+
+/**
+ * Guarda una nueva colaboración en la DB
+ */
+export async function saveCollaboration(
+  data: Omit<Collaboration, 'collaboration_id' | 'post_engagement'>
+): Promise<Collaboration> {
+  
+  const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, ''); // 20251109
+  const collabId = `${timestamp}-${data.username}`; // ej: 20251109-hatueyfierro
+
+  const newItem: Collaboration = {
+    ...data,
+    collaboration_id: collabId
+  };
+
+  const command = new PutCommand({
+    TableName: COLLAB_TABLE_NAME,
+    Item: newItem,
+  });
+  
+  await docClient.send(command);
+  return newItem;
+}
+
+/**
+ * Obtiene todas las colaboraciones de una plataforma
+ */
+export async function getCollaborations(platform: Platform): Promise<Collaboration[]> {
+  const command = new QueryCommand({
+    TableName: COLLAB_TABLE_NAME,
+    KeyConditionExpression: "#p = :p",
+    ExpressionAttributeNames: { "#p": "platform" },
+    ExpressionAttributeValues: { ":p": platform },
+  });
+
+  const response = await docClient.send(command);
+  return (response.Items || []) as Collaboration[];
+}
+
+/**
+ * Actualiza una colaboración con sus datos de engagement
+ */
+export async function updateCollabEngagement(
+  platform: Platform,
+  collaboration_id: string,
+  engagement: { likes: number; comments: number }
+): Promise<void> {
+  const command = new UpdateCommand({
+    TableName: COLLAB_TABLE_NAME,
+    Key: { platform, collaboration_id },
+    UpdateExpression: "SET post_engagement = :e",
+    ExpressionAttributeValues: { ":e": engagement },
+  });
+  await docClient.send(command);
+}
+
+/**
+ * Borra una colaboración de la DB
+ */
+export async function deleteCollaboration(platform: Platform, collaboration_id: string): Promise<void> {
+  const command = new DeleteCommand({
+    TableName: COLLAB_TABLE_NAME,
+    Key: { platform, collaboration_id },
+  });
+  await docClient.send(command);
+}
+
+export async function saveHashtagStats(stats: Omit<HashtagStats, 'stat_date'>): Promise<void> {
+  const today = new Date().toISOString().split('T')[0];
+  
+  const newItem: HashtagStats = {
+    ...stats,
+    stat_date: today,
+  };
+
+  const command = new PutCommand({
+    TableName: HASHTAG_TABLE_NAME,
+    Item: newItem,
+  });
+
+  await docClient.send(command); // (Puedes añadirle 'withRetry' si quieres)
+  console.log(`DB: ✅ Estadísticas guardadas para #${stats.hashtag}`);
+}
+
+/**
+ * Obtiene las estadísticas más recientes guardadas para un hashtag
+ */
+export async function getHashtagStats(hashtag: string): Promise<HashtagStats | null> {
+  const command = new QueryCommand({
+    TableName: HASHTAG_TABLE_NAME,
+    KeyConditionExpression: "#h = :h",
+    ExpressionAttributeNames: { "#h": "hashtag" },
+    ExpressionAttributeValues: { ":h": hashtag },
+    ScanIndexForward: false, // Ordenar por fecha (descendente)
+    Limit: 1, // Traer solo el más reciente
+  });
+
+  const response = await docClient.send(command);
+  if (!response.Items || response.Items.length === 0) {
+    return null;
+  }
+  return response.Items[0] as HashtagStats;
+}
 
 export async function getDueScheduledPosts(): Promise<ScheduledPost[]> {
   const now = new Date().toISOString();
