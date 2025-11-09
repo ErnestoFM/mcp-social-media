@@ -1,6 +1,8 @@
 // src/platforms/multi.ts
 
 import { saveDailyStats, getStatsLastNDays, getGrowthAnalysis, compareAllPlatforms, Platform} from "../utils/database.js";
+import { generateCreativeText } from "../utils/gemini.js";
+
 // IMPORTAMOS LA LÓGICA DE NEGOCIO DE TODOS LOS MÓDULOS
 import { sendGrowthReportEmail } from "../utils/notifications.js";
 import {
@@ -54,7 +56,69 @@ async function snapshotCurrentStats(
 // ==============================================================================
 
 export const multiTools = [
-{
+    {
+    name: "generate_creative_caption",
+    description: "Genera un texto creativo (caption) para un post de redes sociales basado en un tema o prompt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          description: "El tema o idea para el post (ej. 'un atardecer en la playa', 'un nuevo logro').",
+        },
+      },
+      required: ["topic"],
+    },
+  },
+  {
+    name: "ai_moderate_comment",
+    description: "Analiza si un comentario es spam/tóxico y sugiere una respuesta, o recomienda eliminarlo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        comment_text: { type: "string", description: "El texto del comentario a analizar." },
+        post_context: { 
+          type: "string", 
+          description: "El caption del post original (para dar contexto).",
+          default: "Sin contexto"
+        }
+      },
+      required: ["comment_text"],
+    },
+  },
+  {
+    name: "ai_generate_content_ideas",
+    description: "Genera ideas de posts (para IG, FB, Threads) basadas en tendencias y tu nicho.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        niche: { 
+          type: "string", 
+          description: "El tema o nicho. ej: 'gaming y valorant', 'cocina vegana'"
+        },
+        count: { 
+          type: "number", 
+          default: 5 
+        }
+      },
+      required: ["niche"],
+    },
+  },
+    {
+    name: "ai_analyze_content_strategy",
+    description: "Analiza los posts más recientes de Instagram y Facebook y usa IA (Gemini) para dar recomendaciones de estrategia.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        post_limit: { 
+          type: "number", 
+          default: 15,
+          description: "Número de posts recientes de cada plataforma para analizar."
+        }
+      }
+    },
+    },
+    {
     name: "send_growth_report_by_email",
     description: "Genera un reporte de crecimiento (últimos 30 días) y lo envía a un correo.",
     inputSchema: {
@@ -192,6 +256,134 @@ export async function handleMultiCall(
 ) {
 
   switch (name) {
+    case "generate_creative_caption": {
+      const { topic } = args as any;
+      const fullPrompt = `Escribe un caption corto, creativo y atractivo para un post de Instagram. Incluye 2-3 emojis y 1-2 hashtags relevantes. El tema es: "${topic}"`;
+      const generatedText = await generateCreativeText(fullPrompt);
+
+      return {
+        content: [
+          { type: "text", text: `Aquí tienes un texto creativo:\n\n${generatedText}` },
+          { type: "json", json: { generated_caption: generatedText } }
+        ],
+      };
+    }
+
+    // --- ¡BLOQUE ACTUALIZADO CON TU NUEVO PROMPT! ---
+    case "ai_moderate_comment": {
+      const { comment_text, post_context } = args as any;
+      
+      const prompt = `
+Analiza este comentario en un post de Instagram:
+Post: "${post_context}"
+Comentario: "${comment_text}"
+
+Determina:
+1. ¿Es spam? (sí/no y confianza %)
+2. ¿Es tóxico/negativo? (sí/no y confianza %)
+3. ¿Requiere respuesta? (sí/no)
+4. Si requiere respuesta, sugiérela (tono amigable, máx 100 chars)
+
+Responde *solo* en formato JSON:
+{
+  "isSpam": boolean,
+  "spamConfidence": number,
+  "isToxic": boolean,
+  "toxicConfidence": number,
+  "needsReply": boolean,
+  "suggestedReply": string | null
+}`;
+      
+      const geminiResponse = await generateCreativeText(prompt);
+      
+      // Limpiamos el JSON por si Gemini añade "```json"
+      const cleanJson = geminiResponse.replace(/```json\n?|\n?```/g, '');
+      
+      return {
+        content: [
+          { type: "text", text: `Análisis de IA (Gemini):\n\n${cleanJson}` },
+          { type: "json", json: JSON.parse(cleanJson) }
+        ]
+      };
+    }
+    
+    case "ai_generate_content_ideas": {
+      const { niche, count } = args as any;
+      
+      const prompt = `
+        Actúa como un estratega de redes sociales experto.
+        Genera ${count} ideas de posts creativos y de alto engagement para Instagram, Facebook y Threads sobre el nicho: "${niche}".
+        Para cada idea, dame un "title" corto, una "description" de la idea, y la "platform" sugerida (Instagram, Facebook, o Threads).
+        
+        Responde *solo* en formato JSON. Ejemplo:
+        {
+          "ideas": [
+            { "title": "Tutorial Rápido (Reel)", "description": "Un Reel de 30s mostrando un truco clave sobre ${niche}.", "platform": "Instagram" },
+            { "title": "Pregunta Abierta", "description": "Un post de texto con una pregunta para generar conversación.", "platform": "Threads" }
+          ]
+        }
+      `;
+      
+      const geminiResponse = await generateCreativeText(prompt);
+      const cleanJson = geminiResponse.replace(/```json\n?|\n?```/g, '');
+
+      return {
+        content: [
+          { type: "text", text: `Aquí hay ${count} ideas de contenido para "${niche}":\n\n${cleanJson}` },
+          { type: "json", json: JSON.parse(cleanJson) }
+        ]
+      };
+    }
+    case "ai_analyze_content_strategy": {
+      console.error("Multi: 📊 Iniciando análisis de estrategia con IA...");
+      const { post_limit } = args as any;
+      
+      // 1. Obtener los datos (en paralelo)
+      const [igPosts, fbPosts] = await Promise.all([
+        getIgPosts(post_limit),
+        getFbPosts(post_limit)
+      ]);
+      
+      // 2. Formatear los datos para que la IA los entienda
+      const igData = igPosts.map((p: any) => ({ 
+        caption: p.caption?.substring(0, 50) + "...", 
+        likes: p.like_count, 
+        comments: p.comments_count,
+        type: p.media_type
+      }));
+      
+      const fbData = fbPosts.map((p: any) => ({
+        caption: p.message?.substring(0, 50) + "...",
+        likes: p.likes?.summary?.total_count || 0,
+        comments: p.comments?.summary?.total_count || 0,
+        type: p.media_type || 'TEXT/LINK'
+      }));
+      
+      // 3. Construir el prompt para Gemini
+      const prompt = `
+        Actúa como un estratega de redes sociales experto.
+        Analiza los siguientes datos de rendimiento de mis ${post_limit} posts más recientes en Instagram y Facebook.
+        
+        Datos de Instagram:
+        ${JSON.stringify(igData, null, 2)}
+        
+        Datos de Facebook:
+        ${JSON.stringify(fbData, null, 2)}
+        
+        Basándote *solo* en estos datos:
+        1. ¿Qué tipo de contenido (ej. REEL, CAROUSEL, VIDEO, IMAGE) está funcionando mejor en cada plataforma?
+        2. ¿Qué plataforma parece tener mejor engagement (likes + comments) en general?
+        3. Dame 3 recomendaciones accionables y específicas para mejorar mi estrategia de contenido.
+      `;
+      
+      // 4. Llamar a Gemini
+      const analysis = await generateCreativeText(prompt);
+      
+      return {
+        content: [{ type: "text", text: `🤖 Análisis de Estrategia de Contenido (por Gemini):\n\n${analysis}` }]
+      };
+    }
+
     case "send_growth_report_by_email": {
       const { platform, email } = args as any;
       

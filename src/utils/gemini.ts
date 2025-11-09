@@ -16,8 +16,12 @@ if (!API_KEY) {
 // 2. Inicializar el cliente
 const genAI = new GoogleGenerativeAI(API_KEY);
 
+const creativeConfig: GenerationConfig = {
+  temperature: 0.8, // Un poco más creativo
+  maxOutputTokens: 230, // No más de 230 tokens
+};
 // Este es el modelo que usaremos, soporta "function calling"
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", generationConfig: creativeConfig });
 
 
 /**
@@ -26,6 +30,22 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 export async function simpleTextPrompt(prompt: string) {
   const result = await model.generateContent(prompt);
   return result.response.text();
+}
+
+export async function generateCreativeText(prompt: string): Promise<string> {
+  console.error(`Gemini: 🧠 Generando texto para... "${prompt.substring(0, 50)}..."`);
+  
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    console.error(`Gemini: 🧠 Texto generado: "${text.substring(0, 50)}..."`);
+    return text;
+  } catch (error: any) {
+    console.error(`Gemini: ❌ Error al generar texto: ${error.message}`);
+    // Devuelve un error claro para que el manejador catch en 'index.ts' lo capture
+    throw new Error(`Error de Gemini: ${error.message}`);
+  }
 }
 
 /**
