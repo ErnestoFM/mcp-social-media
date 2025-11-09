@@ -112,7 +112,7 @@ async function main() {
   console.error("================================================");
   console.error(`   -> Cargadas ${instagramTools.length} herramientas de Instagram`);
   console.error(`   -> Cargadas ${facebookTools.length} herramientas de Facebook`);
-  console.error(`   -> Cargadas ${threadsTools.length} herramientas de Threads`); // <-- NUEVO
+  //console.error(`   -> Cargadas ${threadsTools.length} herramientas de Threads`); // <-- NUEVO
   console.error(`   -> Cargadas ${multiTools.length} herramientas Multi-plataforma`);
   console.error(`☁️ Bucket: ${process.env.AWS_S3_BUCKET}`);
 }

@@ -2,6 +2,7 @@
 
 import { saveDailyStats, getStatsLastNDays, getGrowthAnalysis, compareAllPlatforms, Platform} from "../utils/database.js";
 // IMPORTAMOS LA LÓGICA DE NEGOCIO DE TODOS LOS MÓDULOS
+import { sendGrowthReportEmail } from "../utils/notifications.js";
 import {
   get_profile as getIgProfile,
   get_comments as getIgComments,
@@ -54,6 +55,25 @@ async function snapshotCurrentStats(
 
 export const multiTools = [
 {
+    name: "send_growth_report_by_email",
+    description: "Genera un reporte de crecimiento (últimos 30 días) y lo envía a un correo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        platform: {
+          type: "string",
+          enum: ["instagram", "facebook"],
+          description: "La plataforma para analizar."
+        },
+        email: {
+          type: "string",
+          description: "El correo del destinatario (Debe estar verificado en AWS SES)."
+        }
+      },
+      required: ["platform", "email"],
+    },
+  },
+    {
     name: "run_daily_snapshot",
     description: "Toma una 'foto' de las estadísticas actuales (seguidores, posts) de Instagram y Facebook y las guarda en la base de datos.", // <-- CORREGIDO
     inputSchema: {
@@ -172,6 +192,27 @@ export async function handleMultiCall(
 ) {
 
   switch (name) {
+    case "send_growth_report_by_email": {
+      const { platform, email } = args as any;
+      
+      // 1. Obtener el análisis (reutilizando tu lógica de DB)
+      console.log(`Multi: 📊 Generando reporte para email...`);
+      const analysis = await getGrowthAnalysis(platform, 30); // 30 días
+
+      if ('error' in analysis) {
+        throw new Error(`Error al generar reporte: ${analysis.error}`);
+      }
+
+      // 2. Enviar el correo (usando el nuevo módulo)
+      await sendGrowthReportEmail(analysis, email);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `✅ ¡Reporte de ${platform} enviado exitosamente a ${email}!` 
+        }]
+      };
+    }
     case "run_daily_snapshot": {
       console.error("Multi: 🏃 Ejecutando snapshot diario para todas las plataformas...");
 

@@ -1,10 +1,20 @@
 // db/dynamodb.ts
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import crypto from 'crypto';
+export interface ScheduledPost {
+  post_id: string;
+  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  scheduled_time: string; // ISO 8601
+  platforms: ('instagram' | 'facebook' | 'threads')[];
+  s3_url: string;
+  caption: string;
+}
 import { 
   DynamoDBDocumentClient, 
   PutCommand, 
   QueryCommand,
   DeleteCommand,
+  UpdateCommand,
   BatchWriteCommand
 } from "@aws-sdk/lib-dynamodb";
 
@@ -38,6 +48,7 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || "social_stats";
+const SCHEDULED_TABLE_NAME = process.env.DYNAMODB_SCHEDULED_TABLE ||"scheduled_posts"
 
 // ========== HELPERS ==========
 
@@ -72,6 +83,77 @@ function validateStats(stats: DailyStats): boolean {
 
 // ========== FUNCIONES PRINCIPALES ==========
 
+export async function getDueScheduledPosts(): Promise<ScheduledPost[]> {
+  const now = new Date().toISOString();
+
+  const command = new QueryCommand({
+    TableName: SCHEDULED_TABLE_NAME,
+    // ¡Aquí usamos un Índice Secundario Global (GSI)!
+    // Necesitas crear un GSI en tu tabla DynamoDB llamado 'StatusAndTimeIndex' con:
+    // - Clave de partición: 'status' (String)
+    // - Clave de ordenación: 'scheduled_time' (String)
+    IndexName: "StatusAndTimeIndex", 
+    KeyConditionExpression: "#s = :status AND #st <= :now",
+    ExpressionAttributeNames: {
+      "#s": "status",
+      "#st": "scheduled_time",
+    },
+    ExpressionAttributeValues: {
+      ":status": "PENDING",
+      ":now": now,
+    },
+  });
+
+  const response = await docClient.send(command);
+  return (response.Items || []) as ScheduledPost[];
+}
+
+export async function updateScheduledPostStatus(
+  post_id: string,
+  status: 'PUBLISHED' | 'FAILED',
+  error?: string
+): Promise<void> {
+  const command = new UpdateCommand({
+    TableName: SCHEDULED_TABLE_NAME,
+    Key: { post_id },
+    UpdateExpression: "SET #s = :status, error_message = :error",
+    ExpressionAttributeNames: {
+      "#s": "status",
+    },
+    ExpressionAttributeValues: {
+      ":status": status,
+      ":error": error || null,
+    },
+  });
+  await docClient.send(command);
+}
+
+/**
+ * Obtiene todos los posts pendientes
+ */
+export async function listPendingPosts(): Promise<ScheduledPost[]> {
+  // Esta es la misma consulta que getDueScheduledPosts pero sin el filtro de tiempo
+  const command = new QueryCommand({
+    TableName: SCHEDULED_TABLE_NAME,
+    IndexName: "StatusAndTimeIndex", 
+    KeyConditionExpression: "#s = :status",
+    ExpressionAttributeNames: { "#s": "status" },
+    ExpressionAttributeValues: { ":status": "PENDING" },
+  });
+  const response = await docClient.send(command);
+  return (response.Items || []) as ScheduledPost[];
+}
+
+/**
+ * Borra un post programado de la DB
+ */
+export async function deleteScheduledPost(post_id: string): Promise<void> {
+  const command = new DeleteCommand({
+    TableName: SCHEDULED_TABLE_NAME,
+    Key: { post_id },
+  });
+  await docClient.send(command);
+}
 export async function saveDailyStats(
   platform: Platform,
   stats: DailyStats
@@ -287,4 +369,8 @@ export async function cleanOldData(
   } catch (error: any) {
     console.error(`DB: ❌ Error limpiando datos:`, error.message);
   }
+}
+
+export async function saveScheduledPost(arg0: { platforms: any; s3_url: string; caption: any; scheduled_time: any; }) {
+    throw new Error("Function not implemented.");
 }

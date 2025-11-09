@@ -4,6 +4,7 @@ import { uploadToS3 } from "../utils/s3.js"; // Importamos la utilidad compartid
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import { validatePhoto, validateVideo } from "../utils/media.js";
 
 // Leemos las variables de entorno (cargadas en index.ts)
 const API_URL = process.env.INSTAGRAM_API_URL!;
@@ -18,6 +19,14 @@ const USER_ID = process.env.INSTAGRAM_USER_ID!;
 /**
  * Sube un archivo local a S3
  */
+export async function delete_comment(comment_id: string) {
+  const response = await axios.delete(`${API_URL}/${comment_id}`, {
+    params: { access_token: ACCESS_TOKEN },
+  });
+  return response.data; // { success: true }
+}
+
+// --- AÑADE A LA LISTA 'instagramTools' ---
 async function internal_upload_to_s3(local_path: string): Promise<string> {
   if (!fs.existsSync(local_path)) {
     throw new Error(`No se encontró el archivo: ${local_path}`);
@@ -175,6 +184,36 @@ export async function upload_and_publish_photo(
   return { ...result, imageUrl, imagePath: image_path };
 }
 
+export async function upload_and_publish_story(
+  media_path: string,
+  media_type: 'IMAGE' | 'VIDEO'
+) {
+  let s3Url = "";
+  if (media_type === 'IMAGE') {
+    validatePhoto(media_path);
+    s3Url = await internal_upload_to_s3(media_path);
+  } else {
+    validateVideo(media_path);
+    s3Url = await internal_upload_to_s3(media_path);
+  }
+  
+  // Paso 1: Crear contenedor de Historia
+  const params: any = {
+    media_type: "STORIES"
+  };
+  
+  if (media_type === 'IMAGE') {
+    params.image_url = s3Url;
+  } else {
+    params.video_url = s3Url;
+  }
+
+  const creation_id = await create_media_container(params);
+  
+  // Paso 2: Publicar
+  return await publish_media_container(creation_id);
+}
+
 export async function upload_and_publish_reel(
   video_path: string,
   caption?: string,
@@ -199,7 +238,20 @@ export async function upload_and_publish_reel(
   const result = await publish_media_container(creation_id);
   return { ...result, videoUrl };
 }
+export async function get_profile_insights(period: 'day' | 'week' | 'month') {
+  console.error(`IG: 📈 Obteniendo insights del perfil para ${period}...`);
+  // Métricas comunes del perfil
+  const metrics = "profile_views,website_clicks,reach,impressions,follower_count";
 
+  const response = await axios.get(`${API_URL}/${USER_ID}/insights`, {
+    params: {
+      metric: metrics,
+      period: period,
+      access_token: ACCESS_TOKEN,
+    },
+  });
+  return response.data.data;
+}
 export async function upload_and_publish_carousel(
   image_paths: string[],
   caption?: string
@@ -241,7 +293,50 @@ export async function upload_and_publish_carousel(
 
 // (Copia aquí el array 'instagramTools' completo que ya tenías)
 export const instagramTools = [
-  {
+   {
+  name: "get_profile_insights",
+  description: "Obtiene analíticas del perfil (vistas de perfil, clics en web) para un período.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      period: {
+        type: "string",
+        enum: ["day", "week", "month"],
+        description: "El período de tiempo para el reporte (day, week, o month). 'month' es 28 días.",
+        default: "week",
+      }
+    },
+  },
+},
+    {
+  name: "upload_and_publish_story",
+  description: "Sube un video o foto a S3 y lo publica como una Historia de Instagram.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      media_path: {
+        type: "string",
+        description: "Ruta local del archivo (foto o video). Ej: C:\\...\\mifoto.jpg"
+      },
+      media_type: {
+        type: "string",
+        enum: ["IMAGE", "VIDEO"],
+        description: "Especifica si el archivo es 'IMAGE' o 'VIDEO'."
+      }
+    },
+    required: ["media_path", "media_type"],
+  },
+},
+    {
+    name: "delete_comment",
+    description: "Elimina un comentario de Instagram",
+    inputSchema: {
+        type: "object",
+        properties: { comment_id: { type: "string" } },
+        required: ["comment_id"],
+        },
+    },
+    {
     name: "upload_and_publish_photo",
     description: "Sube una foto desde tu PC a S3 y la publica en Instagram",
     inputSchema: {
@@ -364,6 +459,23 @@ export async function handleInstagramCall(
   args: any
 ){
   switch (name) {
+    case "upload_and_publish_story": {
+      const { media_path, media_type } = args as any;
+      const result = await upload_and_publish_story(media_path, media_type);
+      return {
+        content: [{
+          type: "text",
+          text: `✅ ¡Historia publicada exitosamente!\n🆔 ID de Media: ${result.id}`
+        }]
+      };
+    }
+    case "delete_comment": {
+      const { comment_id } = args as any;
+      await delete_comment(comment_id);
+      return {
+        content: [{ type: "text", text: `✅ Comentario ${comment_id} de Instagram eliminado.` }],
+      };
+    }
     case "get_profile": {
       const profile = await get_profile();
       return {
@@ -378,7 +490,21 @@ export async function handleInstagramCall(
         ],
       };
     }
+    case "get_profile_insights": {
+      const { period } = args as any;
+      const insights = await get_profile_insights(period || 'week');
+      
+      let text = `📈 Analíticas del Perfil (Período: ${period || 'week'}):\n\n`;
+      insights.forEach((metric: any) => {
+        // Los insights de perfil devuelven 3 valores (de los 3 últimos períodos)
+        const lastValue = metric.values[metric.values.length - 1]; 
+        text += `  - ${metric.title}: ${lastValue.value}\n`;
+      });
 
+      return {
+        content: [{ type: "text", text }]
+      };
+    }
     case "get_posts": {
       const posts = await get_posts(args.limit);
       if (posts.length === 0) {
