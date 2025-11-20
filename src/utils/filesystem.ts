@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 
 // 1. Cargar la ruta de la "jaula" desde las variables de entorno
-const SANDBOX_DIR = path.resolve(process.env.FILESYSTEM_SANDBOX!);
+const SANDBOX_DIR = path.resolve(process.env.FILESYSTEM_SANDBOX_LOCAL!);
 if (!fs.existsSync(SANDBOX_DIR) || !fs.statSync(SANDBOX_DIR).isDirectory()) {
   throw new Error(`La carpeta sandbox no existe: ${SANDBOX_DIR}. Por favor, créala.`);
 }

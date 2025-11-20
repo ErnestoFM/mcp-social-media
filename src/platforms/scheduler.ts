@@ -1,9 +1,8 @@
-// src/platforms/scheduler.ts
-
 import { validatePhoto, validateVideo } from "../utils/media.js";
 import { uploadToS3 } from "../utils/s3.js";
 import * as db from "../utils/database.js"; // Importamos nuestro módulo de DB
-
+import path from "path";
+import { logger } from "../utils/loggers.js";
 // ==============================================================================
 // 1. DEFINICIÓN DE HERRAMIENTAS
 // ==============================================================================
@@ -17,10 +16,10 @@ export const schedulerTools = [
       properties: {
         platforms: {
           type: "array",
-          items: { "enum": ["instagram", "facebook", "threads"] },
+          items: { enum: ["instagram", "facebook"] },
           description: "Un array de plataformas donde publicar, ej. ['instagram', 'facebook']"
         },
-        image_path: {
+        media_path: {
           type: "string",
           description: "Ruta local de la imagen o video a publicar (ej. 'C:\\fotos\\foto.jpg')."
         },
@@ -33,13 +32,17 @@ export const schedulerTools = [
           description: "La fecha y hora en formato ISO 8601 (UTC) para publicar. Ej: 2025-11-08T18:00:00Z"
         }
       },
-      required: ["platforms", "image_path", "caption", "scheduled_time"],
+      required: ["platforms", "media_path", "caption", "scheduled_time"],
     },
   },
   {
     name: "list_scheduled_posts",
-    description: "Lista todos los posts programados que están pendientes de publicar."
-  },
+    description: "Lista todos los posts programados que están pendientes de publicar.",
+    inputSchema: {  // <-- AÑADIDO
+      type: "object",
+      properties: {}
+    }
+    },
   {
     name: "cancel_scheduled_post",
     description: "Cancela un post programado que aún no se ha publicado.",
@@ -63,19 +66,49 @@ export const schedulerTools = [
 export async function handleSchedulerCall(name: string, args: any) {
   switch (name) {
     case "schedule_post": {
-      const { platforms, image_path, caption, scheduled_time } = args as any;
+      const { platforms, media_path, caption, scheduled_time } = args as any;
 
       // 1. Validar el archivo local 
       // (Asumimos que es una foto por simplicidad, puedes añadir lógica para video)
-      console.log("Scheduler: Validando archivo...");
-      validatePhoto(image_path); // O 'validateVideo'
+        logger.info("Scheduler: Validando archivo", { 
+        mediaPath: media_path,
+        extension: path.extname(media_path).toLowerCase()
+        });
+        const ext = path.extname(media_path).toLowerCase();
+
+    try {
+        if (['.mp4', '.mov'].includes(ext)) {
+          logger.debug("Scheduler: Es un video, validando video..."); // <-- .error
+          await validateVideo(media_path); // <-- ¡Añadido AWAIT!
+        } else {
+          logger.debug("Scheduler: Es una imagen, validando foto..."); // <-- .error
+          await validatePhoto(media_path); // <-- ¡Añadido AWAIT!
+        }
+        logger.info("Scheduler: Archivo validado exitosamente", { 
+        mediaPath: media_path,
+        type: ['.mp4', '.mov'].includes(ext) ? 'video' : 'image'
+        });
+      } catch (validationError: any) {
+        // Si la validación falla (ej. muy largo, muy grande), detenemos
+        logger.error("Scheduler: Validación de archivo falló", {
+            mediaPath: media_path,
+            extension: ext,
+            error: validationError.message,
+            stack: validationError.stack
+        });
+        throw new Error(`Validación de archivo falló: ${validationError.message}`);
+      }
 
       // 2. Subir a S3
-      console.log("Scheduler: Subiendo a S3...");
-      const s3_url = await uploadToS3(image_path);
-      console.log(`Scheduler: URL de S3: ${s3_url}`);
+      logger.info("Scheduler: Subiendo a S3...");
+      const s3_url = await uploadToS3(media_path);
+      logger.info(`Scheduler: URL de S3: ${s3_url}`);
 
       // 3. Guardar en DynamoDB
+       logger.info("Scheduler: Guardando en DynamoDB", {
+        platforms,
+        scheduledTime: scheduled_time
+    });
       const postId = await db.saveScheduledPost({
         platforms: platforms,
         s3_url: s3_url,

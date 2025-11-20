@@ -13,3 +13,5 @@ build/
 # Opcional: Archivos de configuración del sistema operativo
 .DS_Store
 Thumbs.db
+
+logs/

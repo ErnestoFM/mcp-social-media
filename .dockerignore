@@ -1,0 +1,18 @@
+# ¡Nunca incluyas las claves secretas en la imagen!
+.env
+mcp-config.json
+
+# Ignorar dependencias (las instalamos dentro del contenedor)
+node_modules
+
+# Ignorar el código compilado (lo generamos dentro)
+build
+
+# Ignorar carpetas de Git y sistema
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# Ignorar la "jaula" local, no debe estar en la imagen
+mcp-sandbox

@@ -153,7 +153,7 @@ export const multiTools = [
       properties: {
         platform: {
           type: "string",
-          enum: ["instagram", "facebook"], // <-- CORREGIDO
+          enum: ["instagram", "facebook"], 
           description: "La plataforma para analizar."
         },
         days: {

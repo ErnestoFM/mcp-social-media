@@ -5,7 +5,7 @@ export interface ScheduledPost {
   post_id: string;
   status: 'PENDING' | 'PUBLISHED' | 'FAILED';
   scheduled_time: string; // ISO 8601
-  platforms: ('instagram' | 'facebook' | 'threads')[];
+  platforms: ('instagram' | 'facebook')[];
   s3_url: string;
   caption: string;
 }
@@ -70,7 +70,7 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || "social_stats";
-const SCHEDULED_TABLE_NAME = process.env.DYNAMODB_SCHEDULED_TABLE ||"scheduled_posts"
+const SCHEDULED_TABLE_NAME = process.env.DYNAMODB_SCHEDULED_TABLE_NAME || "scheduled_posts"
 const HASHTAG_TABLE_NAME = process.env.DYNAMODB_HASHTAG_TABLE_NAME || "hashtag_stats";
 const COLLAB_TABLE_NAME = process.env.DYNAMODB_COLLAB_TABLE_NAME || "social_collaborations";
 // ========== HELPERS ==========
@@ -502,6 +502,29 @@ export async function cleanOldData(
   }
 }
 
-export async function saveScheduledPost(arg0: { platforms: any; s3_url: string; caption: any; scheduled_time: any; }) {
-    throw new Error("Function not implemented.");
+export async function saveScheduledPost(// Usamos Omit para decir "todos los campos de ScheduledPost MENOS post_id y status"
+  data: Omit<ScheduledPost, 'post_id' | 'status'>
+): Promise<string> {
+  
+  // 1. Genera un ID único para el post
+  const postId = crypto.randomUUID(); 
+  
+  // 2. Crea el objeto completo que se guardará
+  const newItem: ScheduledPost = {
+    ...data,
+    post_id: postId,
+    status: 'PENDING', // Todos los posts empiezan como PENDIENTES
+  };
+
+  // 3. Crea el comando para DynamoDB
+  const command = new PutCommand({
+    TableName: SCHEDULED_TABLE_NAME,
+    Item: newItem,
+  });
+  
+  // 4. Envía el comando (con reintentos si implementaste withRetry)
+  await docClient.send(command);
+
+  // 5. Devuelve el ID al usuario
+  return postId;
 }

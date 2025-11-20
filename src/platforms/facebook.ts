@@ -124,6 +124,25 @@ export async function delete_post(post_id: string) {
   return response.data; // { success: true }
 }
 
+export async function publish_photo_from_url(url: string, caption?: string) {
+  console.error(`FB: 📝 Publicando desde URL: ${url}`);
+  
+  const response = await axios.post(
+    `${API_URL}/${PAGE_ID}/photos`,
+    null,
+    {
+      params: {
+        url: url,
+        caption: caption || "",
+        access_token: PAGE_TOKEN,
+      },
+    }
+  );
+  
+  // Devuelve { id, post_id }
+  return response.data; 
+}
+
 export async function publish_photo(image_path: string, caption?: string) {
   const imageUrl = await internal_upload_to_s3(image_path);
   console.error(`FB: 📝 Publicando en Facebook Page ID: ${PAGE_ID}...`);

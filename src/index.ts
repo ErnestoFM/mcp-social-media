@@ -1,11 +1,6 @@
-// src/index.ts
-
-// ¡PASO 1: Cargar y validar ENV primero que nada!
-import { loadEnv, validateEnvVariables } from "./utils/auth.js";
-loadEnv();
-validateEnvVariables(); 
-
-// --- Ahora el resto de tus importaciones ---
+import 'dotenv/config';
+import { validateEnvVariables } from "./utils/auth.js";
+import * as db from "./utils/database.js"; // Importar DB para el "Reloj"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -15,24 +10,24 @@ import {
 
 // --- Importar nuestros módulos de plataforma ---
 import { instagramTools, handleInstagramCall, publish_photo_from_url as igPublish } from "./platforms/instagram.js";
-import { facebookTools, handleFacebookCall, publish_photo as fbPublish } from "./platforms/facebook.js";
+import { facebookTools, handleFacebookCall, publish_photo_from_url as fbPublish } from "./platforms/facebook.js";
 import { multiTools, handleMultiCall } from "./platforms/multi.js";
 //import { threadsTools, handleThreadsCall } from "./platforms/threads.js"; 
 import { filesystemTools, handleFilesystemCall } from "./platforms/filesystem.js";
 import { generativeTools, handleGenerativeCall } from "./platforms/generative.js";
 import { schedulerTools, handleSchedulerCall } from "./platforms/scheduler.js";
 import { analyticsTools, handleAnalyticsCall } from "./platforms/analytics.js";
+import { logger } from "./utils/loggers.js";
+import { log, time } from "console";
 
-// --- Importar lógica de DB para el "Reloj" ---
-import * as db from "./utils/database.js";
-
+validateEnvVariables(); // Verificar ENV antes de continuar
 // ==============================================================================
 // INICIALIZACIÓN DEL SERVIDOR
 // ==============================================================================
 const server = new Server(
   {
     name: "social-media-mcp-server",
-    version: "5.0.0", // ¡Versión 5 con todo!
+    version: "5.0.0",
   },
   {
     capabilities: {
@@ -53,9 +48,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     //...threadsTools,
     ...multiTools,
     ...filesystemTools,
-    ...generativeTools,
-    ...schedulerTools,
-    ...analyticsTools,
+    ...generativeTools,
+    ...schedulerTools,
+    ...analyticsTools,
   ];
   
   return { tools: allTools };
@@ -68,45 +63,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     let response; 
     
-    // Lógica de enrutamiento por prefijo
-    if (name.startsWith("fs_")) { 
-      console.error(`Enrutando a Filesystem: ${name}`);
+    // Lógica de enrutamiento por prefijo
+    if (name.startsWith("fs_")) { 
+      logger.info(`Enrutando a Filesystem: ${name}`);
       response = await handleFilesystemCall(name, args);
     }
     else if (name.startsWith("facebook_")) {
-      console.error(`Enrutando a Facebook: ${name}`);
+      logger.info(`Enrutando a Facebook: ${name}`);
       response = await handleFacebookCall(name, args);
     }
-    // else if (name.startsWith("threads_")) { 
-    //  console.error(`Enrutando a Threads: ${name}`);
-    //  response = await handleThreadsCall(name, args);
-    // }
-    else if (name.startsWith("generate_") || name.startsWith("ai_")) {
-      console.error(`Enrutando a Generative (Gemini): ${name}`);
-      response = await handleGenerativeCall(name, args);
-    }
-    else if (name.startsWith("schedule_") || name.startsWith("list_sched") || name.startsWith("cancel_sched")) {
-      console.error(`Enrutando a Scheduler: ${name}`);
-      response = await handleSchedulerCall(name, args);
-    }
-    else if (name.startsWith("track_") || name.startsWith("list_collab") || name.startsWith("cancel_collab") || name.startsWith("analyze_") || name.startsWith("compare_my_")) {
-      console.error(`Enrutando a Analytics: ${name}`);
-      response = await handleAnalyticsCall(name, args);
-    }
-    else if (name.startsWith("get_all_") || name.startsWith("compare_post_") || name.startsWith("suggest_")) {
-      console.error(`Enrutando a Multi-plataforma: ${name}`);
-      response = await handleMultiCall(name, args);
+    // else if (name.startsWith("threads_")) { ... }
+    else if (name.startsWith("generate_") || name.startsWith("ai_")) {
+      logger.info(`Enrutando a Generative (Gemini): ${name}`);
+      response = await handleGenerativeCall(name, args);
     }
+    else if (name.startsWith("schedule_") || name.startsWith("list_sched") || name.startsWith("cancel_sched")) {
+      logger.info(`Enrutando a Scheduler: ${name}`);
+      response = await handleSchedulerCall(name, args);
+    }
+    else if (name.startsWith("track_") || name.startsWith("list_collab") || name.startsWith("cancel_collab") || name.startsWith("analyze_") || name.startsWith("compare_my_")) {
+      logger.info(`Enrutando a Analytics: ${name}`);
+      response = await handleAnalyticsCall(name, args);
+    }
+
+    else if (
+      name.startsWith("get_all_") || 
+      name.startsWith("compare_post_") || 
+      name.startsWith("suggest_") ||
+      name.startsWith("run_daily_snapshot") || 
+      name.startsWith("get_growth_report") || 
+      name.startsWith("get_full_comparison_") || 
+      name.startsWith("send_growth_report_") ||
+      name.startsWith("moderate_spam_")
+    ) {
+      logger.info(`Enrutando a Multi-plataforma: ${name}`);
+      response = await handleMultiCall(name, args);
+    }
     else { // Instagram (y herramientas de S3) al final
-      console.error(`Enrutando a Instagram: ${name}`);
+      logger.info(`Enrutando a Instagram: ${name}`);
       response = await handleInstagramCall(name, args);
     }
     
     return response;
 
   } catch (error: any) {
-    console.error(`❌ Error en el manejador principal: ${name}`);
-    console.error(error.message);
+    logger.error("Error en el manejador principal", {
+      toolName: name,
+      error: error.message,
+      stack: error.stack,
+      response: error.response?.data?.error?.message || null,
+      args: args // Incluye los argumentos que causaron el error
+    });
     
     return {
       content: [
@@ -124,41 +131,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // LÓGICA DEL "TRABAJADOR" (WORKER) DEL SCHEDULER
 // ==============================================================================
 async function checkAndPublishDuePosts() {
-  console.log("Scheduler: ⏰ Buscando posts pendientes...");
-  
-  const duePosts = await db.getDueScheduledPosts();
-  if (duePosts.length === 0) {
-    console.log("Scheduler: 😌 No hay posts pendientes por ahora.");
-    return;
-  }
+  // ¡EL TRY...CATCH GENERAL EMPIEZA AQUÍ!
+const startTime = Date.now();
+let successCount = 0;
+let failCount = 0;
+  try {
+    logger.info("Scheduler: ⏰ Buscando posts pendientes..."); 
+    
+    const duePosts = await db.getDueScheduledPosts();
+    if (duePosts.length === 0) {
+      logger.info("Scheduler: 😌 No hay posts pendientes por ahora.");
+      return;
+    }
 
-  console.log(`Scheduler: 🚀 ¡Encontrados ${duePosts.length} posts para publicar!`);
+    logger.debug(`Scheduler: 🚀 ¡Encontrados ${duePosts.length} posts para publicar!`);
 
-  for (const post of duePosts) {
-    console.log(`Scheduler: Publicando Post ID: ${post.post_id}`);
-    try {
-      let publishedPlatforms = [];
-      
-      // Publicar en cada plataforma
-      if (post.platforms.includes('instagram')) {
-        await igPublish(post.s3_url, post.caption); // Llama a la lógica interna de IG
-        publishedPlatforms.push('Instagram');
-      }
-      if (post.platforms.includes('facebook')) {
-        // (Asumiendo que refactorizaste fbPublish para tomar url y caption)
-        // await fbPublish(post.s3_url, post.caption); 
-        // publishedPlatforms.push('Facebook');
-      }
-      // ... (añadir lógica de threads si se activa)
+    for (const post of duePosts) {
+      logger.info(`Scheduler: Publicando Post ID: ${post.post_id}`);
+      
+      // Un try...catch interno para cada post individual
+      try {
+        let publishedPlatforms: string[] = [];
+        
+        if (post.platforms.includes('instagram')) {
+          await igPublish(post.s3_url, post.caption); 
+          publishedPlatforms.push('Instagram');
+        }
+        if (post.platforms.includes('facebook')) {
+          // ¡CORRECCIÓN 1! (Llamando a la función importada)
+          await fbPublish(post.s3_url, post.caption); 
+          publishedPlatforms.push('Facebook');
+        }
+        
+        await db.updateScheduledPostStatus(post.post_id, 'PUBLISHED');
+        logger.debug(`Scheduler: ✅ Post ${post.post_id} publicado en [${publishedPlatforms.join(', ')}]`);
 
-      // Marcar como publicado
-      await db.updateScheduledPostStatus(post.post_id, 'PUBLISHED');
-      console.log(`Scheduler: ✅ Post ${post.post_id} publicado en [${publishedPlatforms.join(', ')}]`);
-
-    } catch (error: any) {
-      console.error(`Scheduler: ❌ Error al publicar ${post.post_id}:`, error.message);
-      await db.updateScheduledPostStatus(post.post_id, 'FAILED', error.message);
-    }
+      } catch (error: any) {
+        // Si un post falla, lo marcamos y continuamos con el siguiente
+        logger.error("Scheduler: ❌ Error al publicar:", {postId: post.post_id,  error: error.message, stack: error.stack });
+        await db.updateScheduledPostStatus(post.post_id, 'FAILED', error.message);
+      }
+    }
+  }catch (err: any) {
+    // Atrapa errores al *iniciar* la función (ej. error de DB o de índice)
+    logger.error("================================================");
+    logger.error("💥 ERROR CRÍTICO EN EL SCHEDULER (¡El servidor sigue vivo!)");
+    logger.error(`Mensaje: ${err.message}`);
+    logger.error("================================================", {
+      error: err,
+      stack: err.stack,
+      timestamp: new Date().toISOString(),
+      errorType: err.name || 'UnknownError'
+    });
   }
 }
 
@@ -166,39 +190,46 @@ async function checkAndPublishDuePosts() {
 // FUNCIÓN PRINCIPAL DE ARRANQUE
 // ==============================================================================
 async function main() {
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   
-  console.error("================================================");
-  console.error("✅ Servidor MCP de Redes Sociales v5.0 iniciado");
-  console.error("================================================");
-  console.error(`   -> Cargadas ${instagramTools.length} herramientas de Instagram`);
-  console.error(`   -> Cargadas ${facebookTools.length} herramientas de Facebook`);
-  //console.error(`   -> Cargadas ${threadsTools.length} herramientas de Threads`);
-  console.error(`   -> Cargadas ${multiTools.length} herramientas Multi-plataforma`);
-  console.error(`   -> Cargadas ${generativeTools.length} herramientas Generativas (Gemini)`);
-  console.error(`   -> Cargadas ${schedulerTools.length} herramientas de Programador`);
-  console.error(`   -> Cargadas ${analyticsTools.length} herramientas de Analíticas`);
-  console.error(`☁️ Bucket S3: ${process.env.AWS_S3_BUCKET}`);
-  console.error(`🗄️ Tabla Stats: ${process.env.DYNAMODB_TABLE_NAME}`);
-  console.error(`🗄️ Tabla Collabs: ${process.env.DYNAMODB_COLLAB_TABLE_NAME}`);
-  console.error(`🗄️ Tabla Hashtags: ${process.env.DYNAMODB_HASHTAG_TABLE_NAME}`);
-  console.error(`🗄️ Tabla Scheduler: ${process.env.SCHEDULED_TABLE_NAME}`); // (¡Asegúrate de añadir esta variable!)
-  console.error(`📁 Sandbox: ${process.env.FILESYSTEM_SANDBOX}`);
+  logger.info("================================================");
+  logger.info("✅ Servidor MCP de Redes Sociales v5.0 iniciado");
+  logger.info("================================================");
+  logger.info(`   -> Cargadas ${instagramTools.length} herramientas de Instagram`);
+  logger.info(`   -> Cargadas ${facebookTools.length} herramientas de Facebook`);
+  //console.error(`   -> Cargadas ${threadsTools.length} herramientas de Threads`);
+  logger.info(`   -> Cargadas ${multiTools.length} herramientas Multi-plataforma`);
+  logger.info(`   -> Cargadas ${generativeTools.length} herramientas Generativas (Gemini)`);
+  logger.info(`   -> Cargadas ${schedulerTools.length} herramientas de Programador`);
+  logger.info(`   -> Cargadas ${analyticsTools.length} herramientas de Analíticas`);
+  logger.info(`☁️ Bucket S3: ${process.env.AWS_S3_BUCKET}`);
+  logger.info(`🗄️ Tabla Stats: ${process.env.DYNAMODB_TABLE_NAME}`);
+  logger.info(`🗄️ Tabla Collabs: ${process.env.DYNAMODB_COLLAB_TABLE_NAME}`);
+  logger.info(`🗄️ Tabla Hashtags: ${process.env.DYNAMODB_HASHTAG_TABLE_NAME}`);
+  logger.info(`𗄄️ Tabla Scheduler: ${process.env.SCHEDULED_TABLE_NAME}`); 
+  // ¡CORRECCIÓN 3! Eliminado el '_LOCAL'
+  logger.info(`📁 Sandbox: ${process.env.FILESYSTEM_SANDBOX}`);
 
-  // ¡AQUÍ INICIA EL RELOJ!
-  console.error("================================================");
-  console.error("⏰ Iniciando el programador de posts (revisión cada 60s)");
-  console.error("================================================");
-  
-  // Revisa inmediatamente al iniciar
-  checkAndPublishDuePosts(); 
-  
-  // Y luego revisa cada 60 segundos
-  setInterval(checkAndPublishDuePosts, 60000); 
+  // ¡AQUÍ INICIA EL RELOJ!
+  logger.info("================================================");
+  logger.info("⏰ Iniciando el programador de posts (revisión cada 60s)");
+  logger.info("================================================");
+  
+  // Revisa inmediatamente al iniciar
+  checkAndPublishDuePosts(); 
+  
+ // Y luego revisa cada 60 segundos
+    setInterval(checkAndPublishDuePosts, 60000);
+
 }
 
-main().catch((error) => {
-  console.error("💥 Error fatal al iniciar:", error);
+main().catch((error:any) => {
+  logger.error("💥 Error fatal al iniciar", {
+    message: error?.message ?? String(error),
+    stack: error?.stack ?? null,
+    time
+  });
   process.exit(1);
 });
