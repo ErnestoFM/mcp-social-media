@@ -8,7 +8,7 @@ const AuthGuard = () => {
   if (isLoading) return <div>Cargando...</div>; // O tu componente de Loading
 
   if (!isAuthenticated()) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/access-denied" replace />;
   }
 
   return <Outlet />;

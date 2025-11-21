@@ -7,12 +7,12 @@ import { Helmet } from 'react-helmet';
 
 function App() {
   // Nota: El contenido de la aplicación debe estar dentro de un solo contenedor o Fragmento.
-  
+
   return (
     <AuthProvider>
       <Helmet> {/* <- Helmet se mueve dentro del return */}
-        <title>{import.meta.env.VITE_APP_NAME || 'Eclothe'}</title>
-        <meta name="description" content="Tienda en línea de ropa deportiva sostenible" />
+        <title>{import.meta.env.VITE_APP_NAME || 'MCP'}</title>
+        <meta name="description" content="Herramienta de Intelgencia Artificial para hacer crecer tu marca." />
       </Helmet>
 
       <div className="min-h-screen bg-gray-100">

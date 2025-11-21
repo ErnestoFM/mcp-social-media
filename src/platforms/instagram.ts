@@ -196,12 +196,12 @@ export async function upload_and_publish_story(
     validateVideo(media_path);
     s3Url = await internal_upload_to_s3(media_path);
   }
-  
+
   // Paso 1: Crear contenedor de Historia
   const params: any = {
     media_type: "STORIES"
   };
-  
+
   if (media_type === 'IMAGE') {
     params.image_url = s3Url;
   } else {
@@ -209,7 +209,7 @@ export async function upload_and_publish_story(
   }
 
   const creation_id = await create_media_container(params);
-  
+
   // Paso 2: Publicar
   return await publish_media_container(creation_id);
 }
@@ -293,50 +293,57 @@ export async function upload_and_publish_carousel(
 
 // (Copia aquí el array 'instagramTools' completo que ya tenías)
 export const instagramTools = [
-   {
-  name: "get_profile_insights",
-  description: "Obtiene analíticas del perfil (vistas de perfil, clics en web) para un período.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      period: {
-        type: "string",
-        enum: ["day", "week", "month"],
-        description: "El período de tiempo para el reporte (day, week, o month). 'month' es 28 días.",
-        default: "week",
-      }
-    },
-  },
-},
-    {
-  name: "upload_and_publish_story",
-  description: "Sube un video o foto a S3 y lo publica como una Historia de Instagram.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      media_path: {
-        type: "string",
-        description: "Ruta local del archivo (foto o video). Ej: C:\\...\\mifoto.jpg"
+  {
+    name: "get_profile_insights",
+    description: "Obtiene analíticas del perfil (vistas de perfil, clics en web) para un período.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        period: {
+          type: "string",
+          enum: ["day", "week", "month"],
+          description: "El período de tiempo para el reporte (day, week, o month). 'month' es 28 días.",
+          default: "week",
+        }
       },
-      media_type: {
-        type: "string",
-        enum: ["IMAGE", "VIDEO"],
-        description: "Especifica si el archivo es 'IMAGE' o 'VIDEO'."
-      }
     },
-    required: ["media_path", "media_type"],
   },
-},
-    {
+  // src/platforms/instagram.ts (Fragmento corregido)
+
+  {
+    name: "upload_and_publish_story",
+    description: "Sube un video o foto a S3 y lo publica como una Historia de Instagram.",
+    inputSchema: {
+      type: "object",
+      properties: { // <-- SOLAMENTE UN BLOQUE DE PROPIEDADES
+
+        media_path: { // <-- Movido aquí
+          type: "string",
+          description: "Ruta temporal de s3 con el user_id."
+        },
+        media_type: { // <-- Movido aquí
+          type: "string",
+          enum: ["IMAGE", "VIDEO"],
+          description: "Especifica si el archivo es 'IMAGE' o 'VIDEO'."
+        },
+        caption: { // <-- Movido aquí
+          type: "string"
+        },
+      }, // <-- Cierre correcto del ÚNICO bloque 'properties'
+      required: ["media_path", "media_type"],
+    },
+  },
+  // ... (Continúa con { name: "delete_comment", ... })
+  {
     name: "delete_comment",
     description: "Elimina un comentario de Instagram",
     inputSchema: {
-        type: "object",
-        properties: { comment_id: { type: "string" } },
-        required: ["comment_id"],
-        },
+      type: "object",
+      properties: { comment_id: { type: "string" } },
+      required: ["comment_id"],
     },
-    {
+  },
+  {
     name: "upload_and_publish_photo",
     description: "Sube una foto desde tu PC a S3 y la publica en Instagram",
     inputSchema: {
@@ -344,6 +351,10 @@ export const instagramTools = [
       properties: {
         image_path: { type: "string" },
         caption: { type: "string" },
+        partner_username: { //  Parámetro de colaboración
+          type: "string",
+          description: "Nombre de usuario del colaborador (@ejemplo), si es co-autoría."
+        },
       },
       required: ["image_path"],
     },
@@ -356,6 +367,10 @@ export const instagramTools = [
       properties: {
         image_paths: { type: "array", items: { type: "string" } },
         caption: { type: "string" },
+        partner_username: {
+          type: "string",
+          description: "Nombre de usuario del colaborador (@ejemplo), si es co-autoría."
+        },
       },
       required: ["image_paths"],
     },
@@ -421,6 +436,10 @@ export const instagramTools = [
       properties: {
         video_path: { type: "string" },
         caption: { type: "string" },
+        partner_username: { // <-- Parámetro de colaboración
+          type: "string",
+          description: "Nombre de usuario del colaborador (@ejemplo), si es co-autoría."
+        },
         share_to_feed: { type: "boolean", default: true },
       },
       required: ["video_path"],
@@ -457,7 +476,7 @@ export const instagramTools = [
 export async function handleInstagramCall(
   name: string,
   args: any
-){
+) {
   switch (name) {
     case "upload_and_publish_story": {
       const { media_path, media_type } = args as any;
@@ -483,9 +502,9 @@ export async function handleInstagramCall(
           {
             type: "text",
             text: `📸 @${profile.username}\n` +
-                  `👥 ${profile.followers_count} seguidores\n` +
-                  `📷 ${profile.media_count} posts\n` +
-                  `📝 ${profile.biography || 'Sin bio'}`,
+              `👥 ${profile.followers_count} seguidores\n` +
+              `📷 ${profile.media_count} posts\n` +
+              `📝 ${profile.biography || 'Sin bio'}`,
           },
         ],
       };
@@ -493,11 +512,11 @@ export async function handleInstagramCall(
     case "get_profile_insights": {
       const { period } = args as any;
       const insights = await get_profile_insights(period || 'week');
-      
+
       let text = `📈 Analíticas del Perfil (Período: ${period || 'week'}):\n\n`;
       insights.forEach((metric: any) => {
         // Los insights de perfil devuelven 3 valores (de los 3 últimos períodos)
-        const lastValue = metric.values[metric.values.length - 1]; 
+        const lastValue = metric.values[metric.values.length - 1];
         text += `  - ${metric.title}: ${lastValue.value}\n`;
       });
 
@@ -585,9 +604,9 @@ export async function handleInstagramCall(
           {
             type: "text",
             text: `✅ Imagen subida a S3\n\n` +
-                  `📁 Archivo: ${path.basename(image_path)}\n` +
-                  `☁️ URL: ${imageUrl}\n\n` +
-                  `Puedes usar esta URL para publicar en Instagram.`,
+              `📁 Archivo: ${path.basename(image_path)}\n` +
+              `☁️ URL: ${imageUrl}\n\n` +
+              `Puedes usar esta URL para publicar en Instagram.`,
           },
         ],
       };
@@ -601,10 +620,10 @@ export async function handleInstagramCall(
           {
             type: "text",
             text: `✅ Foto publicada exitosamente en Instagram!\n\n` +
-                  `📁 Archivo: ${path.basename(result.imagePath)}\n` +
-                  `☁️ URL S3: ${result.imageUrl}\n` +
-                  `🆔 Post ID: ${result.id}\n` +
-                  `📝 Caption: ${caption || "Sin texto"}`,
+              `📁 Archivo: ${path.basename(result.imagePath)}\n` +
+              `☁️ URL S3: ${result.imageUrl}\n` +
+              `🆔 Post ID: ${result.id}\n` +
+              `📝 Caption: ${caption || "Sin texto"}`,
           },
         ],
       };
@@ -618,9 +637,9 @@ export async function handleInstagramCall(
           {
             type: "text",
             text: `✅ Reel publicado!\n\n` +
-                  `🎬 Reel ID: ${result.id}\n` +
-                  `📝 Caption: ${caption || "Sin texto"}\n` +
-                  `☁️ Video en S3: ${result.videoUrl}`,
+              `🎬 Reel ID: ${result.id}\n` +
+              `📝 Caption: ${caption || "Sin texto"}\n` +
+              `☁️ Video en S3: ${result.videoUrl}`,
           },
         ],
       };
@@ -634,11 +653,11 @@ export async function handleInstagramCall(
           {
             type: "text",
             text: `✅ Carrusel publicado!\n\n` +
-                  `🆔 Post ID: ${result.id}\n` +
-                  `🖼️ Imágenes: ${image_paths.length}\n` +
-                  `📝 Caption: ${caption || "Sin texto"}\n\n` +
-                  `☁️ URLs en S3:\n` +
-                  result.uploadedUrls.map((url:string, i:number) => `${i + 1}. ${url.split('/').pop()}`).join('\n'),
+              `🆔 Post ID: ${result.id}\n` +
+              `🖼️ Imágenes: ${image_paths.length}\n` +
+              `📝 Caption: ${caption || "Sin texto"}\n\n` +
+              `☁️ URLs en S3:\n` +
+              result.uploadedUrls.map((url: string, i: number) => `${i + 1}. ${url.split('/').pop()}`).join('\n'),
           },
         ],
       };

@@ -18,9 +18,9 @@ export interface HashtagStats {
   total_posts_analyzed: number;
 }
 
-import { 
-  DynamoDBDocumentClient, 
-  PutCommand, 
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
   QueryCommand,
   DeleteCommand,
   UpdateCommand,
@@ -68,7 +68,7 @@ const client = new DynamoDBClient({
   }
 });
 
-const docClient = DynamoDBDocumentClient.from(client);
+export const docClient = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || "social_stats";
 const SCHEDULED_TABLE_NAME = process.env.DYNAMODB_SCHEDULED_TABLE_NAME || "scheduled_posts"
 const HASHTAG_TABLE_NAME = process.env.DYNAMODB_HASHTAG_TABLE_NAME || "hashtag_stats";
@@ -116,7 +116,7 @@ function validateStats(stats: DailyStats): boolean {
 export async function saveCollaboration(
   data: Omit<Collaboration, 'collaboration_id' | 'post_engagement'>
 ): Promise<Collaboration> {
-  
+
   const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, ''); // 20251109
   const collabId = `${timestamp}-${data.username}`; // ej: 20251109-hatueyfierro
 
@@ -129,7 +129,7 @@ export async function saveCollaboration(
     TableName: COLLAB_TABLE_NAME,
     Item: newItem,
   });
-  
+
   await docClient.send(command);
   return newItem;
 }
@@ -179,7 +179,7 @@ export async function deleteCollaboration(platform: Platform, collaboration_id: 
 
 export async function saveHashtagStats(stats: Omit<HashtagStats, 'stat_date'>): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
-  
+
   const newItem: HashtagStats = {
     ...stats,
     stat_date: today,
@@ -223,7 +223,7 @@ export async function getDueScheduledPosts(): Promise<ScheduledPost[]> {
     // Necesitas crear un GSI en tu tabla DynamoDB llamado 'StatusAndTimeIndex' con:
     // - Clave de partición: 'status' (String)
     // - Clave de ordenación: 'scheduled_time' (String)
-    IndexName: "StatusAndTimeIndex", 
+    IndexName: "StatusAndTimeIndex",
     KeyConditionExpression: "#s = :status AND #st <= :now",
     ExpressionAttributeNames: {
       "#s": "status",
@@ -266,7 +266,7 @@ export async function listPendingPosts(): Promise<ScheduledPost[]> {
   // Esta es la misma consulta que getDueScheduledPosts pero sin el filtro de tiempo
   const command = new QueryCommand({
     TableName: SCHEDULED_TABLE_NAME,
-    IndexName: "StatusAndTimeIndex", 
+    IndexName: "StatusAndTimeIndex",
     KeyConditionExpression: "#s = :status",
     ExpressionAttributeNames: { "#s": "status" },
     ExpressionAttributeValues: { ":status": "PENDING" },
@@ -350,7 +350,7 @@ export async function getGrowthAnalysis(
   days: number = 30
 ) {
   const stats = await getStatsLastNDays(platform, days);
-  
+
   if (stats.length < 2) {
     return {
       error: "No hay suficientes datos para calcular crecimiento",
@@ -365,10 +365,10 @@ export async function getGrowthAnalysis(
   const newest = stats[stats.length - 1];
 
   const followersGrowth = newest.followers - oldest.followers;
-  const followersGrowthRate = oldest.followers > 0 
+  const followersGrowthRate = oldest.followers > 0
     ? ((followersGrowth / oldest.followers) * 100).toFixed(2)
     : '0';
-  
+
   const postsGrowth = newest.posts_count - oldest.posts_count;
 
   return {
@@ -411,10 +411,10 @@ export async function compareAllPlatforms(days: number = 30) {
 
   const bestGrowth = validPlatforms.length > 0
     ? validPlatforms.reduce((best, current) => {
-        const currentRate = parseFloat(current.data.followers?.growthRate || '0');
-        const bestRate = parseFloat(best.data.followers?.growthRate || '0');
-        return currentRate > bestRate ? current : best;
-      }).name
+      const currentRate = parseFloat(current.data.followers?.growthRate || '0');
+      const bestRate = parseFloat(best.data.followers?.growthRate || '0');
+      return currentRate > bestRate ? current : best;
+    }).name
     : 'ninguna';
 
   return {
@@ -425,13 +425,13 @@ export async function compareAllPlatforms(days: number = 30) {
       threads
     },
     summary: {
-      // Usamos 'reduce' en el array que ya filtramos
-      totalFollowers: validPlatforms.reduce((total, platform) => {
-        return total + (platform.data.followers?.end || 0);
-      }, 0), // Inicia el total en 0
-      
-      bestGrowthPlatform: bestGrowth
-    }
+      // Usamos 'reduce' en el array que ya filtramos
+      totalFollowers: validPlatforms.reduce((total, platform) => {
+        return total + (platform.data.followers?.end || 0);
+      }, 0), // Inicia el total en 0
+
+      bestGrowthPlatform: bestGrowth
+    }
   };
 }
 
@@ -462,7 +462,7 @@ export async function cleanOldData(
   try {
     const response = await docClient.send(queryCommand);
     const oldItems = response.Items || [];
-    
+
     if (oldItems.length === 0) {
       console.error("DB: ✅ No hay registros antiguos que eliminar.");
       return;
@@ -490,7 +490,7 @@ export async function cleanOldData(
           [TABLE_NAME]: deleteRequests
         }
       });
-      
+
       // (Opcional: puedes envolver esto en un withRetry también)
       await docClient.send(batchCommand);
     }
@@ -505,10 +505,10 @@ export async function cleanOldData(
 export async function saveScheduledPost(// Usamos Omit para decir "todos los campos de ScheduledPost MENOS post_id y status"
   data: Omit<ScheduledPost, 'post_id' | 'status'>
 ): Promise<string> {
-  
+
   // 1. Genera un ID único para el post
-  const postId = crypto.randomUUID(); 
-  
+  const postId = crypto.randomUUID();
+
   // 2. Crea el objeto completo que se guardará
   const newItem: ScheduledPost = {
     ...data,
@@ -521,7 +521,7 @@ export async function saveScheduledPost(// Usamos Omit para decir "todos los cam
     TableName: SCHEDULED_TABLE_NAME,
     Item: newItem,
   });
-  
+
   // 4. Envía el comando (con reintentos si implementaste withRetry)
   await docClient.send(command);
 

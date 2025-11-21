@@ -27,6 +27,13 @@ import { handleGenerativeCall } from "./platforms/generative.js";
 import { handleSchedulerCall } from "./platforms/scheduler.js";
 import { handleAnalyticsCall } from "./platforms/analytics.js";
 
+// Importar routers modularizados
+import loginRouter from "./routers/loginRouter.js";
+import usersRouter from "./routers/usersRouter.js";
+import authRouter from "./routers/authRouter.js";
+import geminiRouter from "./routers/geminiRouter.js";
+import { authenticateJWT } from "./middleware/authMiddleware.js";
+
 // ==============================================================================
 // 1. INICIALIZACIÓN DEL SERVIDOR WEB
 // ==============================================================================
@@ -45,7 +52,7 @@ app.use(express.urlencoded({ extended: true }));
 // Middleware de logging para todas las peticiones
 app.use((req, res, next) => {
   const start = Date.now();
-  
+
   res.on('finish', () => {
     const duration = Date.now() - start;
     logger.info(`${req.method} ${req.path}`, {
@@ -56,7 +63,7 @@ app.use((req, res, next) => {
       ip: req.ip
     });
   });
-  
+
   next();
 });
 
@@ -91,32 +98,43 @@ app.get("/health", (req, res) => {
 });
 
 // ==============================================================================
-// 3. EL "TRADUCTOR" (API a MCP)
+// 2.5. RUTAS MODULARIZADAS
+// ==============================================================================
+
+// Rutas de autenticación (login)
+app.use("/api/login", loginRouter);
+app.use("/api/users", usersRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/gemini", authenticateJWT, geminiRouter);
+
+// ==============================================================================
+// 3. RUTA PRINCIPAL DE HERRAMIENTAS (TOOL CALL)
 // ==============================================================================
 
 // Este es el "enchufe" principal para tu frontend.
 // Tu React llamará a esta ruta: POST http://localhost:3000/api/tool-call
-app.post("/api/tool-call", async (req, res) => {
+// AHORA PROTEGIDO CON authenticateJWT
+app.post("/api/tool-call", authenticateJWT, async (req, res) => {
   const { name, args } = req.body;
 
   // Validación de entrada
   if (!name) {
-    logger.warn("❌ Petición a /api/tool-call sin nombre de herramienta", { 
+    logger.warn("❌ Petición a /api/tool-call sin nombre de herramienta", {
       body: req.body,
-      ip: req.ip 
+      ip: req.ip
     });
-    return res.status(400).json({ 
-      error: "Falta el parámetro 'name' (nombre de la herramienta)" 
+    return res.status(400).json({
+      error: "Falta el parámetro 'name' (nombre de la herramienta)"
     });
   }
 
   if (args === undefined) {
-    logger.warn("❌ Petición a /api/tool-call sin argumentos", { 
+    logger.warn("❌ Petición a /api/tool-call sin argumentos", {
       toolName: name,
-      ip: req.ip 
+      ip: req.ip
     });
-    return res.status(400).json({ 
-      error: "Falta el parámetro 'args' (argumentos de la herramienta)" 
+    return res.status(400).json({
+      error: "Falta el parámetro 'args' (argumentos de la herramienta)"
     });
   }
 
@@ -128,9 +146,9 @@ app.post("/api/tool-call", async (req, res) => {
 
   try {
     let response;
-    
+
     // Enrutamiento de herramientas (mismo que index.ts)
-    if (name.startsWith("fs_")) { 
+    if (name.startsWith("fs_")) {
       logger.debug(`🗂️  Enrutando a Filesystem: ${name}`);
       response = await handleFilesystemCall(name, args);
     }
@@ -158,13 +176,13 @@ app.post("/api/tool-call", async (req, res) => {
       logger.debug(`📸 Enrutando a Instagram: ${name}`);
       response = await handleInstagramCall(name, args);
     }
-    
+
     // Verificar si la respuesta indica un error
     if (response && typeof response === 'object' && 'isError' in response && response.isError) {
       logger.error(`❌ La herramienta ${name} devolvió un error`, { response });
       return res.status(500).json(response);
     }
-    
+
     logger.info(`✅ Herramienta ${name} ejecutada exitosamente`);
     return res.status(200).json(response);
 
@@ -176,13 +194,13 @@ app.post("/api/tool-call", async (req, res) => {
       args: args,
       ip: req.ip
     });
-    
+
     return res.status(500).json({
       error: `Error al ejecutar ${name}`,
       details: error.message,
-      content: [{ 
-        type: "text", 
-        text: `❌ Error en el servidor: ${error.message}` 
+      content: [{
+        type: "text",
+        text: `❌ Error en el servidor: ${error.message}`
       }],
       isError: true,
     });
@@ -200,13 +218,18 @@ app.use((req, res) => {
     path: req.path,
     ip: req.ip
   });
-  
+
   res.status(404).json({
     error: "Ruta no encontrada",
     message: `La ruta ${req.method} ${req.path} no existe`,
     availableEndpoints: [
       "GET /",
       "GET /health",
+      "GET /api/gemini",
+      "POST /api/login",
+      "GET /api/users",
+      "POST /api/users",
+      "POST /api/auth/register",
       "POST /api/tool-call"
     ]
   });
